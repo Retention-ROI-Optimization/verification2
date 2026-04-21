@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments / local tools
+.venv/
+venv/
+env/
+.python-version
+.vscode/
+.idea/
+.DS_Store
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+
+# Ignore all generated artifacts by default
+artifacts/**
+
+# Re-open only the folders/files we want to publish
+!artifacts/
+!artifacts/results/
+!artifacts/results/paper_latency/
+!artifacts/results/training/
+
+# Keep final paper result files
+!artifacts/results/paper_latency/block_level_metrics.csv
+!artifacts/results/paper_latency/summary_metrics.csv
+
+# Keep training metric jsons for the 3 seeds actually used in the paper
+!artifacts/results/training/seed_41/
+!artifacts/results/training/seed_41/*.json
+!artifacts/results/training/seed_42/
+!artifacts/results/training/seed_42/*.json
+!artifacts/results/training/seed_43/
+!artifacts/results/training/seed_43/*.json
+
+# Keep placeholder files only if you want empty dirs in git
+!artifacts/.gitkeep
+!artifacts/results/.gitkeep
+!artifacts/results/paper_latency/.gitkeep
+!artifacts/results/training/.gitkeep
+
+# Explicitly keep heavy/generated stuff ignored
+artifacts/raw_grid/**
+artifacts/feature_cache/**
+artifacts/models/**
+
+# Ignore heavy binary artifacts even under results
+artifacts/results/**/*.joblib
+artifacts/results/**/*.parquet
+artifacts/results/**/*.pkl
+artifacts/results/**/*.npy
+artifacts/results/**/*.npz
+artifacts/results/**/*.feather
+artifacts/results/**/*.xlsx
+artifacts/results/**/*.log
+# external raw data
+data/external/*.zip

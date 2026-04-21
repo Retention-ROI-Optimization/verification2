@@ -1,0 +1,48 @@
+{
+  "logic": {
+    "paper_selection_pressure_shares": {
+      "low": 0.016,
+      "mid": 0.032,
+      "high": 0.044
+    },
+    "sample_size": 10000,
+    "target_selected_customers": {
+      "low": 160,
+      "mid": 320,
+      "high": 440
+    },
+    "proxy_score_formula": {
+      "log_total_spend_365d": 0.28,
+      "num_visits_365d": 0.18,
+      "offer_category_spend_share": 0.22,
+      "offer_company_spend_share": 0.1,
+      "offer_brand_spend_share": 0.07,
+      "purchase_recency_freshness": 0.1,
+      "offervalue": 0.05
+    },
+    "coupon_cost_mapping": "round(offervalue) * 10000 clipped to [7500, 30000]"
+  },
+  "budgets": {
+    "low": {
+      "target_selected_customers": 160,
+      "budget": 2760000,
+      "avg_coupon_cost": 17250.0,
+      "avg_offervalue": 1.6328,
+      "rounded_recommended_budget": 2760000
+    },
+    "mid": {
+      "target_selected_customers": 320,
+      "budget": 5480000,
+      "avg_coupon_cost": 17125.0,
+      "avg_offervalue": 1.6141,
+      "rounded_recommended_budget": 5480000
+    },
+    "high": {
+      "target_selected_customers": 440,
+      "budget": 7550000,
+      "avg_coupon_cost": 17159.09,
+      "avg_offervalue": 1.6182,
+      "rounded_recommended_budget": 7550000
+    }
+  }
+}
