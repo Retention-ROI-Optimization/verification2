@@ -1,0 +1,529 @@
+{
+  "as_of_date": "2012-08-15",
+  "horizon_days": 45,
+  "row_count": 10000,
+  "positive_rate": 0.4029,
+  "feature_count": 102,
+  "feature_dictionary": {
+    "customer_age_days": "기준일까지의 고객 생존 일수",
+    "days_since_last_event": "마지막 이벤트 이후 경과 일수",
+    "recency_days": "마지막 구매 이후 경과 일수",
+    "frequency_30d": "최근 30일 구매 횟수",
+    "frequency_90d": "최근 90일 구매 횟수",
+    "monetary_30d": "최근 30일 순매출 합계",
+    "monetary_90d": "최근 90일 순매출 합계",
+    "avg_order_value_90d": "최근 90일 평균 주문 금액",
+    "monetary_per_visit_90d": "최근 90일 방문 1회당 매출",
+    "visits_14d": "최근 14일 방문 수",
+    "visits_prev_14d": "직전 14일 방문 수",
+    "visit_change_rate_14d": "최근 14일 방문 변화율",
+    "purchases_14d": "최근 14일 구매 수",
+    "purchases_prev_14d": "직전 14일 구매 수",
+    "purchase_change_rate_14d": "최근 14일 구매 변화율",
+    "searches_30d": "최근 30일 검색 수",
+    "searches_prev_30d": "직전 30일 검색 수",
+    "add_to_cart_30d": "최근 30일 장바구니 추가 수",
+    "add_to_cart_prev_30d": "직전 30일 장바구니 추가 수",
+    "coupon_open_30d": "최근 30일 쿠폰 오픈 수",
+    "coupon_open_prev_30d": "직전 30일 쿠폰 오픈 수",
+    "coupon_open_rate_30d": "최근 30일 쿠폰 오픈율",
+    "coupon_response_change_rate": "쿠폰 반응률 변화",
+    "avg_purchase_gap_days": "평균 구매 주기",
+    "median_purchase_gap_days": "중앙 구매 주기",
+    "current_non_purchase_days": "현재 미구매 일수",
+    "purchase_cycle_anomaly": "현재 미구매 일수 / 평균 구매 주기",
+    "avg_session_duration_sec_30d": "최근 30일 평균 세션 시간",
+    "avg_session_duration_sec_prev_30d": "직전 30일 평균 세션 시간",
+    "session_duration_change_rate": "세션 시간 변화율",
+    "pageviews_per_session_30d": "최근 30일 세션당 페이지뷰",
+    "pageviews_per_session_prev_30d": "직전 30일 세션당 페이지뷰",
+    "pageviews_change_rate": "세션당 페이지뷰 변화율",
+    "search_to_purchase_conversion_30d": "최근 30일 검색 후 구매 전환율",
+    "search_to_purchase_conversion_prev_30d": "직전 30일 검색 후 구매 전환율",
+    "search_purchase_conv_change_rate": "검색 후 구매 전환율 변화",
+    "cart_to_purchase_rate_30d": "최근 30일 장바구니→구매 전환율",
+    "cart_to_purchase_rate_prev_30d": "직전 30일 장바구니→구매 전환율",
+    "cart_conversion_change_rate": "장바구니 전환율 변화",
+    "support_contact_30d": "최근 30일 문의 이벤트 수",
+    "support_contact_rate_30d": "최근 30일 세션당 문의 비율",
+    "sessions_30d": "최근 30일 세션 수",
+    "sessions_prev_30d": "직전 30일 세션 수",
+    "active_days_30d": "최근 30일 활동한 고유 일수",
+    "orders_with_coupon_ratio_90d": "최근 90일 쿠폰 사용 주문 비율",
+    "coupon_redeem_rate_90d": "최근 90일 쿠폰 사용 주문 비율",
+    "exposure_count_30d": "최근 30일 캠페인 노출 수",
+    "coupon_cost_30d": "최근 30일 쿠폰 비용",
+    "weekend_purchase_ratio": "주말 구매 비율",
+    "weekday_purchase_ratio": "평일 구매 비율",
+    "evening_activity_ratio": "저녁 시간 활동 비율",
+    "night_activity_ratio": "심야 활동 비율",
+    "workhour_activity_ratio": "근무시간 활동 비율",
+    "weekend_activity_ratio": "주말 전체 활동 비율",
+    "event_diversity_90d": "최근 90일 이벤트 다양성",
+    "recent_event_sequence": "최근 N개 이벤트 시퀀스",
+    "behavior_cluster_id": "행동 클러스터 ID",
+    "dominant_event_type_90d": "최근 90일 최빈 이벤트 타입",
+    "current_journey_stage": "현재 고객 여정 단계",
+    "journey_stage_days": "현재 단계 체류 일수",
+    "inactivity_days": "비활성 일수",
+    "recent_visit_score": "최근 방문 점수",
+    "recent_purchase_score": "최근 구매 점수",
+    "recent_exposure_score": "최근 노출 점수",
+    "coupon_fatigue_score": "누적 쿠폰 피로도 점수",
+    "discount_dependency_score": "할인 의존도 점수",
+    "discount_pressure_score": "프로모션 압박 점수",
+    "discount_effect_penalty": "할인 과다 노출로 인한 기대효과 보정치",
+    "discount_fatigue_sensitivity": "할인 피로 민감도",
+    "offer_dependency_risk": "혜택 의존 위험도",
+    "brand_sensitivity": "브랜드/정가 훼손 민감도"
+  },
+  "clipping_summary": {
+    "coupon_affinity": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.15101536000000002,
+      "fill_value": 0.027395
+    },
+    "price_sensitivity": {
+      "clip_p01": 0.206284,
+      "clip_p99": 0.743169,
+      "fill_value": 0.3053215
+    },
+    "discount_fatigue_sensitivity": {
+      "clip_p01": 0.011019,
+      "clip_p99": 0.33359157000000006,
+      "fill_value": 0.098068
+    },
+    "offer_dependency_risk": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.030864100000000002,
+      "fill_value": 0.0004305
+    },
+    "brand_sensitivity": {
+      "clip_p01": 0.5616235,
+      "clip_p99": 0.6114491200000001,
+      "fill_value": 0.6
+    },
+    "treatment_flag": {
+      "clip_p01": 1.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "coupon_cost": {
+      "clip_p01": 7500.0,
+      "clip_p99": 30000.0,
+      "fill_value": 10000.0
+    },
+    "exposure_count": {
+      "clip_p01": 1.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "redeemed_campaigns": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "coupon_redeem_count_total": {
+      "clip_p01": 0.0,
+      "clip_p99": 9.0,
+      "fill_value": 0.0
+    },
+    "treatment_lift_base": {
+      "clip_p01": -0.07737702,
+      "clip_p99": 0.18146916,
+      "fill_value": 0.015179999999999999
+    },
+    "customer_age_days": {
+      "clip_p01": 107.0,
+      "clip_p99": 166.0,
+      "fill_value": 134.0
+    },
+    "days_since_last_event": {
+      "clip_p01": 0.38327777777777783,
+      "clip_p99": 999.0,
+      "fill_value": 34.25625
+    },
+    "recency_days": {
+      "clip_p01": 0.38327777777777783,
+      "clip_p99": 999.0,
+      "fill_value": 34.25625
+    },
+    "frequency_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 3.0,
+      "fill_value": 0.0
+    },
+    "frequency_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 3.0,
+      "fill_value": 0.0
+    },
+    "frequency_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 5.0,
+      "fill_value": 2.0
+    },
+    "monetary_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2695.6831,
+      "fill_value": 0.0
+    },
+    "monetary_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 5076.740700000009,
+      "fill_value": 517.41
+    },
+    "avg_order_value_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2057.9430500000008,
+      "fill_value": 280.3666666666667
+    },
+    "visits_14d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "visits_prev_14d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "purchases_14d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "purchases_prev_14d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "searches_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "searches_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "add_to_cart_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 3.0,
+      "fill_value": 0.0
+    },
+    "add_to_cart_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "coupon_open_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "coupon_open_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "support_contact_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "visits_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 5.0,
+      "fill_value": 2.0
+    },
+    "active_days_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 3.0,
+      "fill_value": 0.0
+    },
+    "visit_change_rate_14d": {
+      "clip_p01": -1.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "purchase_change_rate_14d": {
+      "clip_p01": -1.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "avg_purchase_gap_days": {
+      "clip_p01": 2.157138888888889,
+      "clip_p99": 110.04108333333335,
+      "fill_value": 28.594444444444445
+    },
+    "median_purchase_gap_days": {
+      "clip_p01": 2.123194444444444,
+      "clip_p99": 110.04108333333335,
+      "fill_value": 26.614930555555556
+    },
+    "avg_items_per_order_90d": {
+      "clip_p01": 5.0,
+      "clip_p99": 777.0,
+      "fill_value": 126.875
+    },
+    "orders_with_coupon_ratio_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "current_non_purchase_days": {
+      "clip_p01": 0.3669444444444445,
+      "clip_p99": 128.5498263888889,
+      "fill_value": 31.188194444444445
+    },
+    "purchase_cycle_anomaly": {
+      "clip_p01": 0.0,
+      "clip_p99": 25.429928877860036,
+      "fill_value": 0.5137988103340758
+    },
+    "avg_session_duration_sec_30d": {
+      "clip_p01": 1080.0,
+      "clip_p99": 2040.0,
+      "fill_value": 1560.0
+    },
+    "median_session_duration_sec_30d": {
+      "clip_p01": 1080.0,
+      "clip_p99": 2040.0,
+      "fill_value": 1560.0
+    },
+    "pageviews_per_session_30d": {
+      "clip_p01": 1.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "searches_per_session_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "sessions_30d": {
+      "clip_p01": 1.0,
+      "clip_p99": 3.0,
+      "fill_value": 1.0
+    },
+    "support_contacts_per_session_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "avg_session_duration_sec_prev_30d": {
+      "clip_p01": 1080.0,
+      "clip_p99": 2040.0,
+      "fill_value": 1560.0
+    },
+    "median_session_duration_sec_prev_30d": {
+      "clip_p01": 1080.0,
+      "clip_p99": 2040.0,
+      "fill_value": 1560.0
+    },
+    "pageviews_per_session_prev_30d": {
+      "clip_p01": 1.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "searches_per_session_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "sessions_prev_30d": {
+      "clip_p01": 1.0,
+      "clip_p99": 3.0,
+      "fill_value": 1.0
+    },
+    "support_contacts_per_session_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "search_to_purchase_conversion_total": {
+      "clip_p01": 0.0,
+      "clip_p99": 3.0,
+      "fill_value": 1.0
+    },
+    "exposure_count_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "exposure_count_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "search_to_purchase_conversion_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "search_to_purchase_conversion_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "cart_to_purchase_rate_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "cart_to_purchase_rate_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2.0,
+      "fill_value": 0.0
+    },
+    "coupon_open_rate_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "coupon_open_rate_prev_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "session_duration_change_rate": {
+      "clip_p01": -0.35714285714285715,
+      "clip_p99": 0.5238095238095238,
+      "fill_value": 0.0
+    },
+    "pageviews_change_rate": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "search_purchase_conv_change_rate": {
+      "clip_p01": -1.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "cart_conversion_change_rate": {
+      "clip_p01": -1.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "coupon_response_change_rate": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "coupon_cost_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "coupon_redeem_rate_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "evening_events": {
+      "clip_p01": 0.0,
+      "clip_p99": 11.0,
+      "fill_value": 0.0
+    },
+    "night_events": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "workhour_events": {
+      "clip_p01": 0.0,
+      "clip_p99": 20.0,
+      "fill_value": 5.0
+    },
+    "weekend_events": {
+      "clip_p01": 0.0,
+      "clip_p99": 13.0,
+      "fill_value": 0.0
+    },
+    "total_events": {
+      "clip_p01": 3.0,
+      "clip_p99": 24.0,
+      "fill_value": 9.0
+    },
+    "event_diversity_90d": {
+      "clip_p01": 3.0,
+      "clip_p99": 6.0,
+      "fill_value": 5.0
+    },
+    "evening_activity_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "night_activity_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "workhour_activity_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "weekend_activity_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "weekend_purchase_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    },
+    "weekday_purchase_ratio": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 1.0
+    },
+    "behavior_cluster_id": {
+      "clip_p01": -1.0,
+      "clip_p99": 5.0,
+      "fill_value": 2.0
+    },
+    "inactivity_days": {
+      "clip_p01": 0.0,
+      "clip_p99": 142.0,
+      "fill_value": 34.0
+    },
+    "journey_stage_days": {
+      "clip_p01": 1.0,
+      "clip_p99": 113.0,
+      "fill_value": 8.0
+    },
+    "recent_visit_score": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.375,
+      "fill_value": 0.0
+    },
+    "recent_purchase_score": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.75,
+      "fill_value": 0.0
+    },
+    "recent_exposure_score": {
+      "clip_p01": 0.0,
+      "clip_p99": 0.0,
+      "fill_value": 0.0
+    },
+    "monetary_per_visit_90d": {
+      "clip_p01": 0.0,
+      "clip_p99": 2057.9430500000008,
+      "fill_value": 280.3666666666667
+    },
+    "support_contact_rate_30d": {
+      "clip_p01": 0.0,
+      "clip_p99": 1.0,
+      "fill_value": 0.0
+    }
+  },
+  "cohort_filter": "none",
+  "missing_value_strategy": "numeric=median, categorical=unknown, outlier=1st/99th percentile clipping"
+}

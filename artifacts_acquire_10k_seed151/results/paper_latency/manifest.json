@@ -1,0 +1,31 @@
+{
+  "block_metrics_path": "/Users/yeongwonshin/Downloads/Verification_acquire_10k/artifacts_acquire_10k_seed151/results/paper_latency/block_level_metrics.csv",
+  "summary_path": "/Users/yeongwonshin/Downloads/Verification_acquire_10k/artifacts_acquire_10k_seed151/results/paper_latency/summary_metrics.csv",
+  "rows": 1344,
+  "summary_rows": 84,
+  "config": {
+    "seeds": [
+      151
+    ],
+    "scenario_families": [
+      "complaint-heavy",
+      "promotion-heavy",
+      "dormancy-heavy",
+      "seasonal-shift"
+    ],
+    "latencies": [
+      0,
+      1,
+      3,
+      7
+    ],
+    "budgets": [
+      2760000,
+      5480000,
+      7550000
+    ],
+    "burn_in_weeks": 12,
+    "decision_week_limit": 16,
+    "bootstrap_iterations": 300
+  }
+}

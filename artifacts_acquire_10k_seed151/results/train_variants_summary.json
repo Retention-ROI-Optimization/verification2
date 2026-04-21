@@ -1,0 +1,9 @@
+{
+  "trained_seeds": [
+    {
+      "seed": 151,
+      "status": "reused",
+      "model_dir": "/Users/yeongwonshin/Downloads/Verification_acquire_10k/artifacts_acquire_10k_seed151/models/seed_151"
+    }
+  ]
+}
