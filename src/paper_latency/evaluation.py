@@ -8,7 +8,15 @@ import numpy as np
 import pandas as pd
 
 from src.paper_latency.config import ExperimentConfig
-from src.paper_latency.engine import compute_policy_comparison_metrics, partial_reoptimization, run_policy_selection
+from src.paper_latency.engine import (
+    compute_policy_comparison_metrics,
+    matched_reoptimization_policy,
+    partial_reoptimization,
+    run_policy_selection,
+    select_random_reopt_ids,
+    select_top_risk_reopt_ids,
+    select_top_value_reopt_ids,
+)
 from src.paper_latency.io_utils import ensure_dir, read_json, seed_dir, write_dataframe, write_json
 from src.paper_latency.model_variants import FeatureCache, load_trained_variant, train_variants_for_seed
 from src.paper_latency.scenario_family import apply_scenario_family
@@ -91,7 +99,7 @@ def train_all_seed_variants(config: ExperimentConfig, *, force: bool = False) ->
             model_dir=model_dir,
             result_dir=result_dir,
             training_dates=training_dates[-config.training_landmarks :],
-            random_state=config.random_state + int(seed),
+            random_state=config.random_state,
         )
         payload['trained_seeds'].append({'seed': seed, 'status': 'trained', 'artifacts': {name: asdict(artifact) for name, artifact in artifacts.items()}})
     write_json(config.result_dir / 'train_variants_summary.json', payload)
@@ -173,22 +181,104 @@ def _summarize_metrics(
 
 
 
+
+
+def _safe_recovery(numerator: float, denominator: float) -> float:
+    if abs(denominator) < 1e-12:
+        return 0.0
+    return float(numerator / denominator)
+
+
+def _add_selection_metrics(
+    row: dict[str, Any],
+    *,
+    prefix: str,
+    fresh_policy,
+    stale_metrics: dict[str, Any],
+    selection,
+    meta: dict[str, Any],
+    latency: int,
+) -> None:
+    metrics = compute_policy_comparison_metrics(
+        fresh_selection=fresh_policy,
+        candidate_selection=selection,
+        latency_days=latency,
+    )
+    row[f'{prefix}_policy_value'] = round(metrics['policy_value'], 6)
+    row[f'{prefix}_stale_regret'] = round(metrics['stale_regret'], 6)
+    row[f'{prefix}_relative_loss'] = round(metrics['relative_loss'], 6)
+    row[f'{prefix}_target_overlap'] = round(metrics['target_overlap'], 6)
+    row[f'{prefix}_missed_at_risk'] = round(metrics['missed_at_risk'], 6)
+    row[f'{prefix}_window_miss_rate'] = round(metrics['window_miss_rate'], 6)
+    row[f'{prefix}_selected_customers'] = int(metrics['selected_customers'])
+    row[f'{prefix}_full_refresh_value_ratio'] = round(
+        _full_refresh_ratio(metrics['policy_value'], fresh_policy.summary['policy_value']),
+        6,
+    )
+    row[f'{prefix}_optimization_call_ratio'] = float(meta.get('optimization_call_ratio', 0.0))
+    row[f'{prefix}_target_overlap_recovery'] = round(
+        _safe_recovery(metrics['target_overlap'] - stale_metrics['target_overlap'], 1.0 - stale_metrics['target_overlap']),
+        6,
+    )
+    row[f'{prefix}_missed_at_risk_recovery'] = round(
+        _safe_recovery(stale_metrics['missed_at_risk'] - metrics['missed_at_risk'], stale_metrics['missed_at_risk']),
+        6,
+    )
+    row[f'{prefix}_window_miss_rate_recovery'] = round(
+        _safe_recovery(stale_metrics['window_miss_rate'] - metrics['window_miss_rate'], stale_metrics['window_miss_rate']),
+        6,
+    )
+
+
 def _summarize_block_metrics(block_metrics: pd.DataFrame, *, bootstrap_iterations: int, random_state: int) -> pd.DataFrame:
+    metric_cols = [
+        'policy_value',
+        'stale_regret',
+        'relative_loss',
+        'target_overlap',
+        'missed_at_risk',
+        'window_miss_rate',
+        'selected_customers',
+        'partial_reopt_optimization_call_ratio',
+        'partial_reopt_regret_recovery_ratio',
+        'partial_reopt_full_refresh_value_ratio',
+        'partial_reopt_target_overlap',
+        'partial_reopt_missed_at_risk',
+        'partial_reopt_window_miss_rate',
+        'partial_reopt_relative_loss',
+        'partial_reopt_target_overlap_recovery',
+        'partial_reopt_missed_at_risk_recovery',
+        'partial_reopt_window_miss_rate_recovery',
+        'random_refresh_full_refresh_value_ratio',
+        'random_refresh_target_overlap',
+        'random_refresh_missed_at_risk',
+        'random_refresh_window_miss_rate',
+        'random_refresh_relative_loss',
+        'random_refresh_target_overlap_recovery',
+        'random_refresh_missed_at_risk_recovery',
+        'random_refresh_window_miss_rate_recovery',
+        'top_risk_refresh_full_refresh_value_ratio',
+        'top_risk_refresh_target_overlap',
+        'top_risk_refresh_missed_at_risk',
+        'top_risk_refresh_window_miss_rate',
+        'top_risk_refresh_relative_loss',
+        'top_risk_refresh_target_overlap_recovery',
+        'top_risk_refresh_missed_at_risk_recovery',
+        'top_risk_refresh_window_miss_rate_recovery',
+        'top_value_refresh_full_refresh_value_ratio',
+        'top_value_refresh_target_overlap',
+        'top_value_refresh_missed_at_risk',
+        'top_value_refresh_window_miss_rate',
+        'top_value_refresh_relative_loss',
+        'top_value_refresh_target_overlap_recovery',
+        'top_value_refresh_missed_at_risk_recovery',
+        'top_value_refresh_window_miss_rate_recovery',
+    ]
+    existing_metric_cols = [col for col in metric_cols if col in block_metrics.columns]
     return _summarize_metrics(
         block_metrics,
         group_cols=['scenario_family', 'budget', 'policy_kind', 'latency_days'],
-        metric_cols=[
-            'policy_value',
-            'stale_regret',
-            'relative_loss',
-            'target_overlap',
-            'missed_at_risk',
-            'window_miss_rate',
-            'selected_customers',
-            'partial_reopt_optimization_call_ratio',
-            'partial_reopt_regret_recovery_ratio',
-            'partial_reopt_full_refresh_value_ratio',
-        ],
+        metric_cols=existing_metric_cols,
         bootstrap_iterations=bootstrap_iterations,
         random_state=random_state,
     )
@@ -299,6 +389,11 @@ def run_rolling_latency_evaluation(config: ExperimentConfig, *, force: bool = Fa
                         )
                         row['partial_reopt_policy_value'] = round(partial_metrics['policy_value'], 6)
                         row['partial_reopt_stale_regret'] = round(partial_metrics['stale_regret'], 6)
+                        row['partial_reopt_relative_loss'] = round(partial_metrics['relative_loss'], 6)
+                        row['partial_reopt_target_overlap'] = round(partial_metrics['target_overlap'], 6)
+                        row['partial_reopt_missed_at_risk'] = round(partial_metrics['missed_at_risk'], 6)
+                        row['partial_reopt_window_miss_rate'] = round(partial_metrics['window_miss_rate'], 6)
+                        row['partial_reopt_selected_customers'] = int(partial_metrics['selected_customers'])
                         row['partial_reopt_regret_recovery_ratio'] = round(
                             (stale_metrics['stale_regret'] - partial_metrics['stale_regret']) / max(abs(stale_metrics['stale_regret']), 1.0),
                             6,
@@ -308,6 +403,87 @@ def run_rolling_latency_evaluation(config: ExperimentConfig, *, force: bool = Fa
                             6,
                         )
                         row['partial_reopt_optimization_call_ratio'] = float(partial_meta['optimization_call_ratio'])
+                        row['partial_reopt_target_overlap_recovery'] = round(
+                            _safe_recovery(partial_metrics['target_overlap'] - stale_metrics['target_overlap'], 1.0 - stale_metrics['target_overlap']),
+                            6,
+                        )
+                        row['partial_reopt_missed_at_risk_recovery'] = round(
+                            _safe_recovery(stale_metrics['missed_at_risk'] - partial_metrics['missed_at_risk'], stale_metrics['missed_at_risk']),
+                            6,
+                        )
+                        row['partial_reopt_window_miss_rate_recovery'] = round(
+                            _safe_recovery(stale_metrics['window_miss_rate'] - partial_metrics['window_miss_rate'], stale_metrics['window_miss_rate']),
+                            6,
+                        )
+
+                        matched_k = int(partial_meta.get('reoptimized_customers', 0))
+                        if matched_k > 0:
+                            family_code = sum(ord(ch) for ch in family)
+                            rng = np.random.default_rng(
+                                int(config.random_state + seed * 100003 + pd.Timestamp(decision_date).toordinal() * 37 + int(budget) * 7 + int(latency) * 997 + family_code)
+                            )
+                            random_ids = select_random_reopt_ids(fresh_base_scores.index, k=matched_k, rng=rng)
+                            random_policy, random_meta = matched_reoptimization_policy(
+                                stale_scores=base_scores,
+                                fresh_scores=fresh_base_scores,
+                                fresh_features=fresh_features,
+                                budget=budget,
+                                scenario_family=family,
+                                decision_date=decision_date,
+                                reopt_ids=random_ids,
+                                use_learned_dose_response=config.use_learned_dose_response,
+                            )
+                            _add_selection_metrics(
+                                row,
+                                prefix='random_refresh',
+                                fresh_policy=fresh_policy,
+                                stale_metrics=stale_metrics,
+                                selection=random_policy,
+                                meta=random_meta,
+                                latency=latency,
+                            )
+
+                            top_risk_ids = select_top_risk_reopt_ids(base_scores, k=matched_k)
+                            top_risk_policy, top_risk_meta = matched_reoptimization_policy(
+                                stale_scores=base_scores,
+                                fresh_scores=fresh_base_scores,
+                                fresh_features=fresh_features,
+                                budget=budget,
+                                scenario_family=family,
+                                decision_date=decision_date,
+                                reopt_ids=top_risk_ids,
+                                use_learned_dose_response=config.use_learned_dose_response,
+                            )
+                            _add_selection_metrics(
+                                row,
+                                prefix='top_risk_refresh',
+                                fresh_policy=fresh_policy,
+                                stale_metrics=stale_metrics,
+                                selection=top_risk_policy,
+                                meta=top_risk_meta,
+                                latency=latency,
+                            )
+
+                            top_value_ids = select_top_value_reopt_ids(stale_policy, k=matched_k, fallback_scores=base_scores)
+                            top_value_policy, top_value_meta = matched_reoptimization_policy(
+                                stale_scores=base_scores,
+                                fresh_scores=fresh_base_scores,
+                                fresh_features=fresh_features,
+                                budget=budget,
+                                scenario_family=family,
+                                decision_date=decision_date,
+                                reopt_ids=top_value_ids,
+                                use_learned_dose_response=config.use_learned_dose_response,
+                            )
+                            _add_selection_metrics(
+                                row,
+                                prefix='top_value_refresh',
+                                fresh_policy=fresh_policy,
+                                stale_metrics=stale_metrics,
+                                selection=top_value_policy,
+                                meta=top_value_meta,
+                                latency=latency,
+                            )
                         rows.append(row)
 
                         if latency == config.stronger_vs_weaker_latency_days:
@@ -383,6 +559,37 @@ def run_rolling_latency_evaluation(config: ExperimentConfig, *, force: bool = Fa
                             'partial_reopt_regret_recovery_ratio': 1.0,
                             'partial_reopt_full_refresh_value_ratio': 1.0,
                             'partial_reopt_optimization_call_ratio': 1.0,
+                            'partial_reopt_target_overlap': 1.0,
+                            'partial_reopt_missed_at_risk': 0.0,
+                            'partial_reopt_window_miss_rate': 0.0,
+                            'partial_reopt_relative_loss': 0.0,
+                            'partial_reopt_target_overlap_recovery': 1.0,
+                            'partial_reopt_missed_at_risk_recovery': 1.0,
+                            'partial_reopt_window_miss_rate_recovery': 1.0,
+                            'random_refresh_full_refresh_value_ratio': 1.0,
+                            'random_refresh_target_overlap': 1.0,
+                            'random_refresh_missed_at_risk': 0.0,
+                            'random_refresh_window_miss_rate': 0.0,
+                            'random_refresh_relative_loss': 0.0,
+                            'random_refresh_target_overlap_recovery': 1.0,
+                            'random_refresh_missed_at_risk_recovery': 1.0,
+                            'random_refresh_window_miss_rate_recovery': 1.0,
+                            'top_risk_refresh_full_refresh_value_ratio': 1.0,
+                            'top_risk_refresh_target_overlap': 1.0,
+                            'top_risk_refresh_missed_at_risk': 0.0,
+                            'top_risk_refresh_window_miss_rate': 0.0,
+                            'top_risk_refresh_relative_loss': 0.0,
+                            'top_risk_refresh_target_overlap_recovery': 1.0,
+                            'top_risk_refresh_missed_at_risk_recovery': 1.0,
+                            'top_risk_refresh_window_miss_rate_recovery': 1.0,
+                            'top_value_refresh_full_refresh_value_ratio': 1.0,
+                            'top_value_refresh_target_overlap': 1.0,
+                            'top_value_refresh_missed_at_risk': 0.0,
+                            'top_value_refresh_window_miss_rate': 0.0,
+                            'top_value_refresh_relative_loss': 0.0,
+                            'top_value_refresh_target_overlap_recovery': 1.0,
+                            'top_value_refresh_missed_at_risk_recovery': 1.0,
+                            'top_value_refresh_window_miss_rate_recovery': 1.0,
                         }
                     )
 
