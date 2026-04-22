@@ -32,8 +32,8 @@ artifacts/**
 !artifacts/results/training/
 
 # Keep final paper result files
-!artifacts/results/paper_latency/block_level_metrics.csv
-!artifacts/results/paper_latency/summary_metrics.csv
+!artifacts/results/paper_latency/acquire_block_level_metrics.csv
+!artifacts/results/paper_latency/acquire_summary_metrics.csv
 
 # Keep training metric jsons for the 3 seeds actually used in the paper
 !artifacts/results/training/seed_41/
