@@ -21,6 +21,7 @@ from src.paper_latency.config import (
 )
 from src.paper_latency.evaluation import (
     prepare_simulation_grid,
+    run_conformal_evaluation,
     run_full_paper_pipeline,
     run_rolling_latency_evaluation,
     run_theta_sensitivity,
@@ -29,13 +30,13 @@ from src.paper_latency.evaluation import (
 
 
 DEFAULT_THETA_GRID: tuple[float, ...] = (0.05, 0.10, 0.15)
+DEFAULT_ALPHA_GRID: tuple[float, ...] = (0.05, 0.10, 0.20)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Paper experiment bed for churn score freshness latency.')
     parser.add_argument('--project-root', default='.', help='Experiment bed root directory')
     parser.add_argument('--seeds', default=','.join(str(x) for x in DEFAULT_SEEDS))
-    parser.add_argument('--artifacts-dir', default='artifacts', help='Artifact root directory relative to project-root, used for raw_grid/cache/models/results')
     parser.add_argument('--scenario-families', default=','.join(DEFAULT_SCENARIO_FAMILIES))
     parser.add_argument('--latencies', default=','.join(str(x) for x in DEFAULT_LATENCIES))
     parser.add_argument('--budgets', default=','.join(str(x) for x in DEFAULT_BUDGETS))
@@ -51,7 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--stronger-vs-weaker-latency-days', type=int, default=3)
     parser.add_argument('--use-learned-dose-response', action='store_true')
     parser.add_argument('--force', action='store_true')
-    parser.add_argument('--mode', required=True, choices=['prepare-grid', 'train-variants', 'run-rolling', 'run-paper', 'run-theta-sensitivity'])
+    # ── Conformal Risk Control ──
+    parser.add_argument('--alpha-grid', default=','.join(f'{x:.2f}' for x in DEFAULT_ALPHA_GRID), help='Comma-separated conformal miscoverage levels α.')
+    parser.add_argument('--ensemble-size', type=int, default=5, help='Number of ensemble members for uncertainty baseline.')
+    parser.add_argument('--conformal-min-cal-size', type=int, default=200, help='Minimum calibration residuals before conformal kicks in.')
+    parser.add_argument('--mode', required=True, choices=['prepare-grid', 'train-variants', 'run-rolling', 'run-paper', 'run-theta-sensitivity', 'run-conformal'])
     return parser
 
 
@@ -59,7 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_config(args: argparse.Namespace) -> ExperimentConfig:
     return ExperimentConfig.from_root(
         args.project_root,
-        artifacts_dir=args.artifacts_dir,
         seeds=parse_int_list(args.seeds, DEFAULT_SEEDS),
         scenario_families=parse_str_list(args.scenario_families, DEFAULT_SCENARIO_FAMILIES),
         latencies=parse_int_list(args.latencies, DEFAULT_LATENCIES),
@@ -74,6 +78,10 @@ def resolve_config(args: argparse.Namespace) -> ExperimentConfig:
         partial_reopt_high_risk_threshold=float(args.partial_reopt_high_risk_threshold),
         partial_reopt_top_share=float(args.partial_reopt_top_share),
         use_learned_dose_response=bool(args.use_learned_dose_response),
+        # ── Conformal Risk Control ──
+        conformal_alpha_grid=parse_float_list(args.alpha_grid, DEFAULT_ALPHA_GRID),
+        conformal_min_cal_size=int(args.conformal_min_cal_size),
+        ensemble_size=int(args.ensemble_size),
     )
 
 
@@ -94,6 +102,12 @@ def main() -> int:
         payload = run_theta_sensitivity(
             config,
             theta_grid=parse_float_list(args.theta_grid, DEFAULT_THETA_GRID),
+            force=args.force,
+        )
+    elif args.mode == 'run-conformal':
+        payload = run_conformal_evaluation(
+            config,
+            alpha_grid=parse_float_list(args.alpha_grid, DEFAULT_ALPHA_GRID),
             force=args.force,
         )
     else:  # pragma: no cover

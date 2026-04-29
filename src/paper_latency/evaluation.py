@@ -10,15 +10,24 @@ import pandas as pd
 from src.paper_latency.config import ExperimentConfig
 from src.paper_latency.engine import (
     compute_policy_comparison_metrics,
+    conformal_partial_reoptimization,
+    compute_conformal_quantile,
     matched_reoptimization_policy,
     partial_reoptimization,
     run_policy_selection,
     select_random_reopt_ids,
     select_top_risk_reopt_ids,
     select_top_value_reopt_ids,
+    select_uncertainty_reopt_ids,
 )
 from src.paper_latency.io_utils import ensure_dir, read_json, seed_dir, write_dataframe, write_json
-from src.paper_latency.model_variants import FeatureCache, load_trained_variant, train_variants_for_seed
+from src.paper_latency.model_variants import (
+    FeatureCache,
+    load_ensemble_variants,
+    load_trained_variant,
+    train_ensemble_for_seed,
+    train_variants_for_seed,
+)
 from src.paper_latency.scenario_family import apply_scenario_family
 from src.simulator.config import DEFAULT_CONFIG
 from src.simulator.pipeline import run_simulation
@@ -835,3 +844,334 @@ def run_full_paper_pipeline(config: ExperimentConfig, *, force: bool = False) ->
     }
     write_json(config.result_dir / 'run_full_paper_pipeline.json', payload)
     return payload
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  §3.4 / §4.3  Conformal Risk Control evaluation
+# ═══════════════════════════════════════════════════════════════════
+
+def _train_all_ensembles(config: ExperimentConfig, *, force: bool = False) -> dict[str, Any]:
+    """Train ensemble members for every seed (prerequisite for uncertainty baseline)."""
+    prepare_simulation_grid(config, force=False)
+    train_all_seed_variants(config, force=False)
+    payload: dict[str, Any] = {'trained_seeds': []}
+    for seed in config.seeds:
+        data_dir = _seed_raw_dir(config, seed)
+        ens_dir = config.model_dir / f'seed_{seed}' / 'ensemble'
+        expected = [ens_dir / f'seed_{seed}_ensemble_{i}_model.joblib' for i in range(config.ensemble_size)]
+        if (not force) and all(p.exists() for p in expected):
+            payload['trained_seeds'].append({'seed': seed, 'status': 'reused'})
+            continue
+        training_dates, _ = _decision_schedule(
+            data_dir, burn_in_weeks=config.burn_in_weeks, limit=config.decision_week_limit,
+        )
+        train_ensemble_for_seed(
+            seed=seed,
+            data_dir=data_dir,
+            cache_dir=config.cache_dir / f'seed_{seed}',
+            model_dir=config.model_dir / f'seed_{seed}',
+            result_dir=config.result_dir / 'training' / f'seed_{seed}',
+            training_dates=training_dates[-config.training_landmarks:],
+            random_state=config.random_state,
+            ensemble_size=config.ensemble_size,
+        )
+        payload['trained_seeds'].append({'seed': seed, 'status': 'trained'})
+    write_json(config.result_dir / 'train_ensembles_summary.json', payload)
+    return payload
+
+
+def _load_ensemble(config: ExperimentConfig, seed: int) -> list:
+    return load_ensemble_variants(
+        config.model_dir / f'seed_{seed}', seed, ensemble_size=config.ensemble_size,
+    )
+
+
+def run_conformal_evaluation(
+    config: ExperimentConfig,
+    *,
+    alpha_grid: tuple[float, ...] | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Run the conformal-guided selective re-optimization experiment.
+
+    For each (seed × decision_date × scenario × latency × budget × α):
+      1.  base-stale  metrics  (identical to existing pipeline)
+      2.  θ-fixed partial       (existing heuristic, for direct comparison)
+      3.  conformal partial      (NEW — §3.4)
+      4.  uncertainty baseline   (NEW — same-cost, ensemble-variance selection)
+    Calibration residuals are accumulated online: week t uses residuals
+    from weeks 1 … t−1 only, avoiding look-ahead bias.
+    """
+    if alpha_grid is None:
+        alpha_grid = config.conformal_alpha_grid
+
+    # ── prerequisites ──
+    prepare_simulation_grid(config, force=False)
+    train_all_seed_variants(config, force=False)
+    _train_all_ensembles(config, force=False)
+
+    # ── output paths ──
+    slug = '__'.join(f'{a:.2f}'.replace('.', 'p').replace('-', 'm') for a in sorted(alpha_grid))
+    result_root = ensure_dir(config.result_dir / 'paper_latency' / 'conformal' / slug)
+    block_path = result_root / 'conformal_block_level_metrics.csv'
+    summary_path = result_root / 'conformal_summary_metrics.csv'
+    manifest_path = result_root / 'manifest.json'
+    if (not force) and block_path.exists() and summary_path.exists() and manifest_path.exists():
+        return read_json(manifest_path)
+
+    rows: list[dict[str, Any]] = []
+
+    for seed in config.seeds:
+        data_dir = _seed_raw_dir(config, seed)
+        models = _load_seed_models(config, seed)
+        ensemble = _load_ensemble(config, seed)
+        cache = FeatureCache(config.cache_dir / f'seed_{seed}', horizon_days=config.horizon_days)
+        _, decision_dates = _decision_schedule(
+            data_dir, burn_in_weeks=config.burn_in_weeks, limit=config.decision_week_limit,
+        )
+
+        # ── per-latency online calibration buffer ──
+        cal_buffers: dict[int, list[float]] = {L: [] for L in config.latencies if L > 0}
+
+        for decision_date in decision_dates:
+            eval_latencies = tuple(sorted(set(config.latencies)))
+            required_latencies = tuple(sorted({0, *eval_latencies}))
+            raw_feature_snapshots = _fresh_and_stale_snapshots(
+                cache=cache,
+                data_dir=data_dir,
+                decision_date=decision_date,
+                latencies=required_latencies,
+            )
+
+            for family in config.scenario_families:
+                fresh_features = apply_scenario_family(
+                    raw_feature_snapshots[0], family, decision_date,
+                ).features
+                family_snapshots = {
+                    lat: apply_scenario_family(
+                        raw_feature_snapshots[lat], family, decision_date,
+                    ).features
+                    for lat in eval_latencies
+                }
+                fresh_base_scores = _score_variant(models['base'], fresh_features)
+                fresh_policy_by_budget = {
+                    budget: run_policy_selection(
+                        fresh_features=fresh_features,
+                        churn_scores=fresh_base_scores,
+                        budget=budget,
+                        scenario_family=family,
+                        decision_date=decision_date,
+                        use_learned_dose_response=config.use_learned_dose_response,
+                    )
+                    for budget in config.budgets
+                }
+
+                for latency in config.latencies:
+                    if latency == 0:
+                        continue
+                    stale_features = family_snapshots[latency]
+                    base_scores = _score_variant(models['base'], stale_features)
+
+                    # ── ensemble scores on stale features (for uncertainty baseline) ──
+                    ens_stale_scores = [_score_variant(m, stale_features) for m in ensemble] if ensemble else []
+
+                    # ── per-customer residuals for this week (saved AFTER loop body) ──
+                    common_idx = fresh_base_scores.index.intersection(base_scores.index)
+                    week_residuals = np.abs(
+                        fresh_base_scores.loc[common_idx].values - base_scores.loc[common_idx].values
+                    ).tolist()
+
+                    for budget in config.budgets:
+                        fresh_policy = fresh_policy_by_budget[budget]
+                        stale_policy = run_policy_selection(
+                            fresh_features=fresh_features,
+                            churn_scores=base_scores,
+                            budget=budget,
+                            scenario_family=family,
+                            decision_date=decision_date,
+                            use_learned_dose_response=config.use_learned_dose_response,
+                        )
+                        stale_metrics = compute_policy_comparison_metrics(
+                            fresh_selection=fresh_policy,
+                            candidate_selection=stale_policy,
+                            latency_days=latency,
+                        )
+
+                        # ── θ-fixed partial (existing heuristic) ──
+                        partial_policy, partial_meta = partial_reoptimization(
+                            stale_scores=base_scores,
+                            fresh_scores=fresh_base_scores,
+                            fresh_features=fresh_features,
+                            stale_selection=stale_policy,
+                            budget=budget,
+                            scenario_family=family,
+                            decision_date=decision_date,
+                            score_delta_threshold=config.partial_reopt_score_delta,
+                            high_risk_threshold=config.partial_reopt_high_risk_threshold,
+                            top_share=config.partial_reopt_top_share,
+                            use_learned_dose_response=config.use_learned_dose_response,
+                        )
+                        partial_metrics = compute_policy_comparison_metrics(
+                            fresh_selection=fresh_policy,
+                            candidate_selection=partial_policy,
+                            latency_days=latency,
+                        )
+                        matched_k = int(partial_meta.get('reoptimized_customers', 0))
+
+                        # ── conformal partial (per α) ──
+                        has_cal = len(cal_buffers.get(latency, [])) >= config.conformal_min_cal_size
+                        for alpha in alpha_grid:
+                            row: dict[str, Any] = {
+                                'seed': int(seed),
+                                'scenario_family': family,
+                                'decision_date': str(pd.Timestamp(decision_date).date()),
+                                'budget': int(budget),
+                                'latency_days': int(latency),
+                                'alpha': float(alpha),
+                                # base stale
+                                'base_target_overlap': round(stale_metrics['target_overlap'], 6),
+                                'base_missed_at_risk': round(stale_metrics['missed_at_risk'], 6),
+                                'base_window_miss_rate': round(stale_metrics['window_miss_rate'], 6),
+                                'base_relative_loss': round(stale_metrics['relative_loss'], 6),
+                                'base_policy_value': round(stale_metrics['policy_value'], 6),
+                                # θ-fixed partial
+                                'partial_target_overlap': round(partial_metrics['target_overlap'], 6),
+                                'partial_missed_at_risk': round(partial_metrics['missed_at_risk'], 6),
+                                'partial_window_miss_rate': round(partial_metrics['window_miss_rate'], 6),
+                                'partial_relative_loss': round(partial_metrics['relative_loss'], 6),
+                                'partial_policy_value': round(partial_metrics['policy_value'], 6),
+                                'partial_optimization_call_ratio': float(partial_meta['optimization_call_ratio']),
+                                'partial_full_refresh_value_ratio': round(
+                                    _full_refresh_ratio(partial_metrics['policy_value'], fresh_policy.summary['policy_value']), 6,
+                                ),
+                                'partial_to_recovery': round(
+                                    _safe_recovery(partial_metrics['target_overlap'] - stale_metrics['target_overlap'],
+                                                   1.0 - stale_metrics['target_overlap']), 6,
+                                ),
+                                'partial_mar_recovery': round(
+                                    _safe_recovery(stale_metrics['missed_at_risk'] - partial_metrics['missed_at_risk'],
+                                                   stale_metrics['missed_at_risk']), 6,
+                                ),
+                            }
+
+                            if has_cal:
+                                q_hat = compute_conformal_quantile(
+                                    np.array(cal_buffers[latency]), float(alpha),
+                                )
+                                conf_sel, conf_meta = conformal_partial_reoptimization(
+                                    stale_scores=base_scores,
+                                    fresh_scores=fresh_base_scores,
+                                    fresh_features=fresh_features,
+                                    stale_selection=stale_policy,
+                                    budget=budget,
+                                    scenario_family=family,
+                                    decision_date=decision_date,
+                                    conformal_q_hat=q_hat,
+                                    use_learned_dose_response=config.use_learned_dose_response,
+                                )
+                                conf_metrics = compute_policy_comparison_metrics(
+                                    fresh_selection=fresh_policy,
+                                    candidate_selection=conf_sel,
+                                    latency_days=latency,
+                                )
+                                row['conformal_q_hat'] = round(q_hat, 6)
+                                row['conformal_target_overlap'] = round(conf_metrics['target_overlap'], 6)
+                                row['conformal_missed_at_risk'] = round(conf_metrics['missed_at_risk'], 6)
+                                row['conformal_window_miss_rate'] = round(conf_metrics['window_miss_rate'], 6)
+                                row['conformal_relative_loss'] = round(conf_metrics['relative_loss'], 6)
+                                row['conformal_policy_value'] = round(conf_metrics['policy_value'], 6)
+                                row['conformal_optimization_call_ratio'] = float(conf_meta['optimization_call_ratio'])
+                                row['conformal_full_refresh_value_ratio'] = round(
+                                    _full_refresh_ratio(conf_metrics['policy_value'], fresh_policy.summary['policy_value']), 6,
+                                )
+                                row['conformal_to_recovery'] = round(
+                                    _safe_recovery(conf_metrics['target_overlap'] - stale_metrics['target_overlap'],
+                                                   1.0 - stale_metrics['target_overlap']), 6,
+                                )
+                                row['conformal_mar_recovery'] = round(
+                                    _safe_recovery(stale_metrics['missed_at_risk'] - conf_metrics['missed_at_risk'],
+                                                   stale_metrics['missed_at_risk']), 6,
+                                )
+                                row['conformal_has_calibration'] = True
+                            else:
+                                row['conformal_has_calibration'] = False
+
+                            # ── uncertainty baseline (same-cost as θ-fixed partial) ──
+                            if matched_k > 0 and ens_stale_scores:
+                                unc_ids = select_uncertainty_reopt_ids(ens_stale_scores, k=matched_k)
+                                unc_sel, unc_meta = matched_reoptimization_policy(
+                                    stale_scores=base_scores,
+                                    fresh_scores=fresh_base_scores,
+                                    fresh_features=fresh_features,
+                                    budget=budget,
+                                    scenario_family=family,
+                                    decision_date=decision_date,
+                                    reopt_ids=unc_ids,
+                                    use_learned_dose_response=config.use_learned_dose_response,
+                                )
+                                unc_metrics = compute_policy_comparison_metrics(
+                                    fresh_selection=fresh_policy,
+                                    candidate_selection=unc_sel,
+                                    latency_days=latency,
+                                )
+                                row['uncertainty_target_overlap'] = round(unc_metrics['target_overlap'], 6)
+                                row['uncertainty_missed_at_risk'] = round(unc_metrics['missed_at_risk'], 6)
+                                row['uncertainty_window_miss_rate'] = round(unc_metrics['window_miss_rate'], 6)
+                                row['uncertainty_relative_loss'] = round(unc_metrics['relative_loss'], 6)
+                                row['uncertainty_policy_value'] = round(unc_metrics['policy_value'], 6)
+                                row['uncertainty_optimization_call_ratio'] = float(unc_meta['optimization_call_ratio'])
+                                row['uncertainty_full_refresh_value_ratio'] = round(
+                                    _full_refresh_ratio(unc_metrics['policy_value'], fresh_policy.summary['policy_value']), 6,
+                                )
+                                row['uncertainty_to_recovery'] = round(
+                                    _safe_recovery(unc_metrics['target_overlap'] - stale_metrics['target_overlap'],
+                                                   1.0 - stale_metrics['target_overlap']), 6,
+                                )
+                                row['uncertainty_mar_recovery'] = round(
+                                    _safe_recovery(stale_metrics['missed_at_risk'] - unc_metrics['missed_at_risk'],
+                                                   stale_metrics['missed_at_risk']), 6,
+                                )
+
+                            rows.append(row)
+
+                    # ── add current-week residuals AFTER processing (no look-ahead) ──
+                    if latency in cal_buffers:
+                        cal_buffers[latency].extend(week_residuals)
+
+    block_df = pd.DataFrame(rows)
+    if block_df.empty:
+        raise PaperExperimentError('No conformal block-level metrics were generated.')
+
+    # ── summarize (group by alpha × latency) ──
+    metric_cols = [c for c in block_df.columns if c not in
+                   {'seed', 'scenario_family', 'decision_date', 'budget',
+                    'latency_days', 'alpha', 'conformal_has_calibration'}]
+    summary = _summarize_metrics(
+        block_df[block_df['conformal_has_calibration'] == True].copy() if 'conformal_has_calibration' in block_df.columns else block_df,
+        group_cols=['alpha', 'latency_days'],
+        metric_cols=[c for c in metric_cols if pd.api.types.is_numeric_dtype(block_df[c])],
+        bootstrap_iterations=config.bootstrap_iterations,
+        random_state=config.random_state + 2001,
+    )
+
+    write_dataframe(block_path, block_df)
+    write_dataframe(summary_path, summary)
+    manifest = {
+        'block_metrics_path': str(block_path),
+        'summary_path': str(summary_path),
+        'rows': int(len(block_df)),
+        'calibrated_rows': int(block_df['conformal_has_calibration'].sum()) if 'conformal_has_calibration' in block_df.columns else 0,
+        'summary_rows': int(len(summary)),
+        'config': {
+            'seeds': list(config.seeds),
+            'scenario_families': list(config.scenario_families),
+            'latencies': list(config.latencies),
+            'budgets': list(config.budgets),
+            'alpha_grid': list(alpha_grid),
+            'ensemble_size': int(config.ensemble_size),
+            'conformal_min_cal_size': int(config.conformal_min_cal_size),
+            'bootstrap_iterations': int(config.bootstrap_iterations),
+        },
+    }
+    write_json(manifest_path, manifest)
+    return manifest

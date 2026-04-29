@@ -39,23 +39,20 @@ class ExperimentConfig:
     partial_reopt_high_risk_threshold: float = 0.80
     partial_reopt_top_share: float = 0.15
     use_learned_dose_response: bool = False
+    # ── Conformal Risk Control ──
+    conformal_alpha_grid: tuple[float, ...] = (0.05, 0.10, 0.20)
+    conformal_min_cal_size: int = 200
+    ensemble_size: int = 5
 
     @classmethod
-    def from_root(
-        cls,
-        project_root: str | Path,
-        *,
-        artifacts_dir: str | Path = 'artifacts',
-        **overrides,
-    ) -> 'ExperimentConfig':
+    def from_root(cls, project_root: str | Path, **overrides) -> 'ExperimentConfig':
         root = Path(project_root).resolve()
-        artifact_root = (root / artifacts_dir).resolve() if not Path(artifacts_dir).is_absolute() else Path(artifacts_dir).resolve()
         return cls(
             project_root=root,
-            raw_grid_dir=artifact_root / 'raw_grid',
-            cache_dir=artifact_root / 'feature_cache',
-            model_dir=artifact_root / 'models',
-            result_dir=artifact_root / 'results',
+            raw_grid_dir=root / 'artifacts' / 'raw_grid',
+            cache_dir=root / 'artifacts' / 'feature_cache',
+            model_dir=root / 'artifacts' / 'models',
+            result_dir=root / 'artifacts' / 'results',
             **overrides,
         )
 

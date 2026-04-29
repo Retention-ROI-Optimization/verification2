@@ -380,3 +380,72 @@ def load_trained_variant(model_path: str | Path) -> TrainedVariant:
         metrics=dict(blob.get('metrics', {})),
         training_columns=list(blob.get('training_columns', [])),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Ensemble training for epistemic-uncertainty estimation
+# ═══════════════════════════════════════════════════════════════════
+
+def train_ensemble_for_seed(
+    *,
+    seed: int,
+    data_dir: str | Path,
+    cache_dir: str | Path,
+    model_dir: str | Path,
+    result_dir: str | Path,
+    training_dates: list[pd.Timestamp],
+    random_state: int,
+    ensemble_size: int = 5,
+) -> list[VariantArtifacts]:
+    """Train *ensemble_size* base-architecture models with different seeds.
+
+    Each member uses the same training panel and feature set as the
+    ``base`` variant but a different random_state, so the prediction
+    variance across members captures epistemic uncertainty.
+    """
+    cache = FeatureCache(cache_dir, horizon_days=45)
+    training_panel = _build_training_panel(
+        data_dir=data_dir, cache=cache, training_dates=training_dates,
+    )
+    if 'label' not in training_panel.columns:
+        raise ValueError('Training panel must include label.')
+    y = training_panel['label'].astype(int)
+    X = prepare_design_matrix(training_panel)
+
+    ens_model_dir = ensure_dir(Path(model_dir) / 'ensemble')
+    ens_result_dir = ensure_dir(Path(result_dir) / 'ensemble')
+
+    artifacts: list[VariantArtifacts] = []
+    for i in range(int(ensemble_size)):
+        variant_name = f'ensemble_{i}'
+        member_seed = int(random_state) + int(seed) + i * 7919
+        pipeline, metrics = _train_single_variant(
+            X, y, variant='base', random_state=member_seed,
+        )
+        payload = {
+            'variant_name': variant_name,
+            'training_columns': list(X.columns),
+            'metrics': metrics,
+        }
+        model_path = ens_model_dir / f'seed_{seed}_{variant_name}_model.joblib'
+        metrics_path = ens_result_dir / f'seed_{seed}_{variant_name}_metrics.json'
+        joblib.dump({'pipeline': pipeline, **payload}, model_path)
+        write_json(metrics_path, payload)
+        artifacts.append(VariantArtifacts(
+            variant_name=variant_name,
+            model_path=str(model_path),
+            metrics_path=str(metrics_path),
+            metrics=payload,
+        ))
+    return artifacts
+
+
+def load_ensemble_variants(model_dir: str | Path, seed: int, ensemble_size: int = 5) -> list[TrainedVariant]:
+    """Load all ensemble members for a given seed."""
+    ens_dir = Path(model_dir) / 'ensemble'
+    variants: list[TrainedVariant] = []
+    for i in range(int(ensemble_size)):
+        path = ens_dir / f'seed_{seed}_ensemble_{i}_model.joblib'
+        if path.exists():
+            variants.append(load_trained_variant(path))
+    return variants

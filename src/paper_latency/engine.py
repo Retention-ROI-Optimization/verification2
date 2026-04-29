@@ -451,3 +451,116 @@ def partial_reoptimization(
         'value_gain_vs_stale': round(partial_value - base_value, 6),
     }
     return partial_selection, metadata
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Conformal Risk Control  &  Uncertainty-based refresh
+# ═══════════════════════════════════════════════════════════════════
+
+def compute_conformal_quantile(
+    residuals: np.ndarray,
+    alpha: float,
+) -> float:
+    """Split-conformal quantile with finite-sample correction.
+
+    Given calibration residuals R_1 … R_n and miscoverage level α,
+    returns q̂ = Quantile(R; ⌈(n+1)(1−α)⌉ / n) which guarantees
+    P(|s_fresh − s_stale| ≤ q̂) ≥ 1 − α marginally.
+    """
+    residuals = np.asarray(residuals, dtype=float)
+    n = len(residuals)
+    if n == 0:
+        return 1.0
+    level = min(np.ceil((n + 1) * (1.0 - float(alpha))) / n, 1.0)
+    return float(np.quantile(residuals, level))
+
+
+def conformal_partial_reoptimization(
+    *,
+    stale_scores: pd.Series,
+    fresh_scores: pd.Series,
+    fresh_features: pd.DataFrame,
+    stale_selection: PolicySelection,
+    budget: int,
+    scenario_family: str,
+    decision_date: str | pd.Timestamp,
+    conformal_q_hat: float,
+    use_learned_dose_response: bool = False,
+) -> tuple[PolicySelection, dict[str, Any]]:
+    """Selective re-optimization with conformal-calibrated threshold.
+
+    q̂ is the (1−α) quantile of calibration residuals |s_fresh − s_stale|
+    from previous decision weeks.  A customer whose actual score change
+    exceeds q̂ is "abnormally volatile" and therefore refreshed.
+
+    α controls the refresh fraction:
+      small α  →  high q̂  →  few refreshes  (strict)
+      large α  →  low  q̂  →  more refreshes (lenient)
+
+    Unlike a fixed θ, q̂ adapts automatically to the observed score
+    volatility in calibration data, eliminating manual threshold tuning.
+    """
+    stale_aligned = stale_scores.reindex(fresh_scores.index).fillna(
+        stale_scores.mean() if len(stale_scores) else 0.5,
+    )
+
+    # ── score change magnitude ──
+    delta = (fresh_scores - stale_aligned).abs().fillna(0.0)
+
+    # ── conformal threshold: refresh customers whose change exceeds q̂ ──
+    exceedance = delta > conformal_q_hat
+
+    # ── also include high-risk customers whose fresh score is extreme ──
+    high_risk = fresh_scores >= 0.80
+    reopt_mask = exceedance | high_risk
+    reopt_ids = set(stale_aligned.index[reopt_mask].astype(int).tolist())
+
+    if not reopt_ids:
+        return stale_selection, {
+            'reoptimized_customers': 0,
+            'optimization_call_ratio': 0.0,
+            'conformal_q_hat': round(conformal_q_hat, 6),
+            'method': 'conformal',
+        }
+
+    refreshed_scores = stale_aligned.copy()
+    valid_ids = [cid for cid in reopt_ids if cid in fresh_scores.index]
+    if valid_ids:
+        refreshed_scores.loc[valid_ids] = fresh_scores.loc[valid_ids]
+
+    selection = run_policy_selection(
+        fresh_features=fresh_features,
+        churn_scores=refreshed_scores,
+        budget=budget,
+        scenario_family=scenario_family,
+        decision_date=decision_date,
+        use_learned_dose_response=use_learned_dose_response,
+    )
+    return selection, {
+        'reoptimized_customers': int(len(valid_ids)),
+        'optimization_call_ratio': round(len(valid_ids) / max(len(fresh_scores), 1), 6),
+        'conformal_q_hat': round(conformal_q_hat, 6),
+        'method': 'conformal',
+    }
+
+
+def select_uncertainty_reopt_ids(
+    ensemble_scores: list[pd.Series],
+    *,
+    k: int,
+) -> set[int]:
+    """Select the *k* customers with highest epistemic uncertainty.
+
+    Epistemic uncertainty is estimated as the variance of churn
+    predictions across an ensemble of models trained with different
+    random seeds.
+    """
+    if k <= 0 or not ensemble_scores:
+        return set()
+    aligned = pd.DataFrame(
+        {f'_m{i}': s for i, s in enumerate(ensemble_scores)},
+    )
+    variance = aligned.var(axis=1).fillna(0.0)
+    k = min(int(k), len(variance))
+    top_idx = variance.nlargest(k).index
+    return set(pd.Index(top_idx).astype(int).tolist())
